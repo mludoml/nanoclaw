@@ -9,9 +9,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import Database from 'better-sqlite3';
+import postgres from 'postgres';
 
-import { STORE_DIR } from '../src/config.js';
 import { readEnvFile } from '../src/env.js';
 import { logger } from '../src/logger.js';
 import {
@@ -139,19 +138,17 @@ export async function run(_args: string[]): Promise<void> {
   const configuredChannels = Object.keys(channelAuth);
   const anyChannelConfigured = configuredChannels.length > 0;
 
-  // 5. Check registered groups (using better-sqlite3, not sqlite3 CLI)
+  // 5. Check registered groups (PostgreSQL)
   let registeredGroups = 0;
-  const dbPath = path.join(STORE_DIR, 'messages.db');
-  if (fs.existsSync(dbPath)) {
+  const dbUrl = process.env.DATABASE_URL;
+  if (dbUrl) {
     try {
-      const db = new Database(dbPath, { readonly: true });
-      const row = db
-        .prepare('SELECT COUNT(*) as count FROM registered_groups')
-        .get() as { count: number };
-      registeredGroups = row.count;
-      db.close();
+      const sql = postgres(dbUrl, { max: 1, connect_timeout: 5 });
+      const rows = await sql`SELECT COUNT(*) as count FROM registered_groups`;
+      registeredGroups = Number(rows[0].count);
+      await sql.end();
     } catch {
-      // Table might not exist
+      // Table might not exist yet
     }
   }
 

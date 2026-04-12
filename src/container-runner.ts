@@ -4,6 +4,7 @@
  */
 import { ChildProcess, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -260,6 +261,24 @@ async function buildContainerArgs(
   });
   if (onecliApplied) {
     logger.info({ containerName }, 'OneCLI gateway config applied');
+    // On macOS, os.tmpdir() returns /var/folders/... which Docker Desktop cannot mount.
+    // Copy any such cert files to ~/.onecli-certs/ (under /Users/) which is accessible.
+    const certsDir = path.join(os.homedir(), '.onecli-certs');
+    fs.mkdirSync(certsDir, { recursive: true });
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '-v' && args[i + 1]?.includes('/var/folders/')) {
+        const parts = args[i + 1].split(':');
+        const srcPath = parts[0];
+        const destPath = path.join(certsDir, path.basename(srcPath));
+        try {
+          fs.copyFileSync(srcPath, destPath);
+          parts[0] = destPath;
+          args[i + 1] = parts.join(':');
+        } catch {
+          // ignore copy errors
+        }
+      }
+    }
   } else {
     logger.warn(
       { containerName },

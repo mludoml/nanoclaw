@@ -13,14 +13,17 @@ import {
   ScheduledTask,
   TaskRunLog,
 } from './types.js';
+import { readEnvFile } from './env.js';
 
 let sql: postgres.Sql;
 
+const _envDb = readEnvFile(['DATABASE_URL', 'NODE_ID']);
 const DATABASE_URL =
   process.env.DATABASE_URL ||
+  _envDb.DATABASE_URL ||
   'postgresql://nanoclaw:nanoclaw_secret@localhost:5433/nanoclaw';
 
-export const NODE_ID = process.env.NODE_ID || os.hostname();
+export const NODE_ID = process.env.NODE_ID || _envDb.NODE_ID || os.hostname();
 
 async function createSchema(): Promise<void> {
   await sql`
@@ -193,7 +196,10 @@ export async function storeChatMetadata(
   }
 }
 
-export async function updateChatName(chatJid: string, name: string): Promise<void> {
+export async function updateChatName(
+  chatJid: string,
+  name: string,
+): Promise<void> {
   const now = new Date().toISOString();
   await sql`
     INSERT INTO chats (jid, name, last_message_time)
@@ -219,7 +225,8 @@ export async function getAllChats(): Promise<ChatInfo[]> {
 }
 
 export async function getLastGroupSync(): Promise<string | null> {
-  const rows = await sql`SELECT last_message_time FROM chats WHERE jid = '__group_sync__'`;
+  const rows =
+    await sql`SELECT last_message_time FROM chats WHERE jid = '__group_sync__'`;
   return rows[0]?.last_message_time || null;
 }
 
@@ -342,19 +349,27 @@ export async function createTask(
   `;
 }
 
-export async function getTaskById(id: string): Promise<ScheduledTask | undefined> {
-  const rows = await sql<ScheduledTask[]>`SELECT * FROM scheduled_tasks WHERE id = ${id}`;
+export async function getTaskById(
+  id: string,
+): Promise<ScheduledTask | undefined> {
+  const rows = await sql<
+    ScheduledTask[]
+  >`SELECT * FROM scheduled_tasks WHERE id = ${id}`;
   return rows[0];
 }
 
-export async function getTasksForGroup(groupFolder: string): Promise<ScheduledTask[]> {
+export async function getTasksForGroup(
+  groupFolder: string,
+): Promise<ScheduledTask[]> {
   return sql<ScheduledTask[]>`
     SELECT * FROM scheduled_tasks WHERE group_folder = ${groupFolder} ORDER BY created_at DESC
   `;
 }
 
 export async function getAllTasks(): Promise<ScheduledTask[]> {
-  return sql<ScheduledTask[]>`SELECT * FROM scheduled_tasks ORDER BY created_at DESC`;
+  return sql<
+    ScheduledTask[]
+  >`SELECT * FROM scheduled_tasks ORDER BY created_at DESC`;
 }
 
 export async function updateTask(
@@ -375,8 +390,10 @@ export async function updateTask(
 
   if (updates.prompt !== undefined) setValues.prompt = updates.prompt;
   if (updates.script !== undefined) setValues.script = updates.script || null;
-  if (updates.schedule_type !== undefined) setValues.schedule_type = updates.schedule_type;
-  if (updates.schedule_value !== undefined) setValues.schedule_value = updates.schedule_value;
+  if (updates.schedule_type !== undefined)
+    setValues.schedule_type = updates.schedule_type;
+  if (updates.schedule_value !== undefined)
+    setValues.schedule_value = updates.schedule_value;
   if (updates.next_run !== undefined) setValues.next_run = updates.next_run;
   if (updates.status !== undefined) setValues.status = updates.status;
 
@@ -432,19 +449,28 @@ export async function getRouterState(key: string): Promise<string | undefined> {
   return rows[0]?.value;
 }
 
-export async function setRouterState(key: string, value: string): Promise<void> {
+export async function setRouterState(
+  key: string,
+  value: string,
+): Promise<void> {
   await sql`
     INSERT INTO router_state (key, value) VALUES (${key}, ${value})
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
   `;
 }
 
-export async function getSession(groupFolder: string): Promise<string | undefined> {
-  const rows = await sql`SELECT session_id FROM sessions WHERE group_folder = ${groupFolder}`;
+export async function getSession(
+  groupFolder: string,
+): Promise<string | undefined> {
+  const rows =
+    await sql`SELECT session_id FROM sessions WHERE group_folder = ${groupFolder}`;
   return rows[0]?.session_id;
 }
 
-export async function setSession(groupFolder: string, sessionId: string): Promise<void> {
+export async function setSession(
+  groupFolder: string,
+  sessionId: string,
+): Promise<void> {
   await sql`
     INSERT INTO sessions (group_folder, session_id) VALUES (${groupFolder}, ${sessionId})
     ON CONFLICT (group_folder) DO UPDATE SET session_id = EXCLUDED.session_id
@@ -485,13 +511,19 @@ export async function getRegisteredGroup(
     folder: row.folder,
     trigger: row.trigger_pattern,
     added_at: row.added_at,
-    containerConfig: row.container_config ? JSON.parse(row.container_config) : undefined,
-    requiresTrigger: row.requires_trigger === null ? undefined : row.requires_trigger === 1,
+    containerConfig: row.container_config
+      ? JSON.parse(row.container_config)
+      : undefined,
+    requiresTrigger:
+      row.requires_trigger === null ? undefined : row.requires_trigger === 1,
     isMain: row.is_main === 1 ? true : undefined,
   };
 }
 
-export async function setRegisteredGroup(jid: string, group: RegisteredGroup): Promise<void> {
+export async function setRegisteredGroup(
+  jid: string,
+  group: RegisteredGroup,
+): Promise<void> {
   if (!isValidGroupFolder(group.folder)) {
     throw new Error(`Invalid group folder "${group.folder}" for JID ${jid}`);
   }
@@ -509,7 +541,9 @@ export async function setRegisteredGroup(jid: string, group: RegisteredGroup): P
   `;
 }
 
-export async function getAllRegisteredGroups(): Promise<Record<string, RegisteredGroup>> {
+export async function getAllRegisteredGroups(): Promise<
+  Record<string, RegisteredGroup>
+> {
   const rows = await sql`SELECT * FROM registered_groups`;
   const result: Record<string, RegisteredGroup> = {};
   for (const row of rows) {
@@ -525,8 +559,11 @@ export async function getAllRegisteredGroups(): Promise<Record<string, Registere
       folder: row.folder,
       trigger: row.trigger_pattern,
       added_at: row.added_at,
-      containerConfig: row.container_config ? JSON.parse(row.container_config) : undefined,
-      requiresTrigger: row.requires_trigger === null ? undefined : row.requires_trigger === 1,
+      containerConfig: row.container_config
+        ? JSON.parse(row.container_config)
+        : undefined,
+      requiresTrigger:
+        row.requires_trigger === null ? undefined : row.requires_trigger === 1,
       isMain: row.is_main === 1 ? true : undefined,
     };
   }
@@ -598,14 +635,20 @@ async function migrateJsonState(): Promise<void> {
     }
   }
 
-  const sessions = migrateFile('sessions.json') as Record<string, string> | null;
+  const sessions = migrateFile('sessions.json') as Record<
+    string,
+    string
+  > | null;
   if (sessions) {
     for (const [folder, sessionId] of Object.entries(sessions)) {
       await setSession(folder, sessionId);
     }
   }
 
-  const groups = migrateFile('registered_groups.json') as Record<string, RegisteredGroup> | null;
+  const groups = migrateFile('registered_groups.json') as Record<
+    string,
+    RegisteredGroup
+  > | null;
   if (groups) {
     for (const [jid, group] of Object.entries(groups)) {
       try {

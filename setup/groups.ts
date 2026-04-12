@@ -8,9 +8,8 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import Database from 'better-sqlite3';
+import postgres from 'postgres';
 
-import { STORE_DIR } from '../src/config.js';
 import { logger } from '../src/logger.js';
 import { emitStatus } from './status.js';
 
@@ -40,26 +39,26 @@ export async function run(args: string[]): Promise<void> {
 }
 
 async function listGroups(limit: number): Promise<void> {
-  const dbPath = path.join(STORE_DIR, 'messages.db');
-
-  if (!fs.existsSync(dbPath)) {
-    console.error('ERROR: database not found');
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    console.error('ERROR: DATABASE_URL not set');
     process.exit(1);
   }
 
-  const db = new Database(dbPath, { readonly: true });
-  const rows = db
-    .prepare(
-      `SELECT jid, name FROM chats
-     WHERE jid LIKE '%@g.us' AND jid <> '__group_sync__' AND name <> jid
-     ORDER BY last_message_time DESC
-     LIMIT ?`,
-    )
-    .all(limit) as Array<{ jid: string; name: string }>;
-  db.close();
-
-  for (const row of rows) {
-    console.log(`${row.jid}|${row.name}`);
+  try {
+    const sql = postgres(dbUrl, { max: 1, connect_timeout: 5 });
+    const rows = await sql`
+      SELECT jid, name FROM registered_groups
+      ORDER BY added_at DESC
+      LIMIT ${limit}
+    `;
+    await sql.end();
+    for (const row of rows) {
+      console.log(`${row.jid}|${row.name}`);
+    }
+  } catch (err) {
+    console.error('ERROR: could not query database', err);
+    process.exit(1);
   }
 }
 
@@ -197,21 +196,17 @@ sock.ev.on('connection.update', async (update) => {
     logger.error({ err }, 'Sync failed');
   }
 
-  // Count groups in DB using better-sqlite3 (no sqlite3 CLI)
+  // Count registered groups in PostgreSQL
   let groupsInDb = 0;
-  const dbPath = path.join(STORE_DIR, 'messages.db');
-  if (fs.existsSync(dbPath)) {
+  const dbUrl = process.env.DATABASE_URL;
+  if (dbUrl) {
     try {
-      const db = new Database(dbPath, { readonly: true });
-      const row = db
-        .prepare(
-          "SELECT COUNT(*) as count FROM chats WHERE jid LIKE '%@g.us' AND jid <> '__group_sync__'",
-        )
-        .get() as { count: number };
-      groupsInDb = row.count;
-      db.close();
+      const sql = postgres(dbUrl, { max: 1, connect_timeout: 5 });
+      const rows = await sql`SELECT COUNT(*) as count FROM registered_groups`;
+      groupsInDb = Number(rows[0].count);
+      await sql.end();
     } catch {
-      // DB may not exist yet
+      // DB may not be ready yet
     }
   }
 
