@@ -49,11 +49,15 @@ async function createSchema(): Promise<void> {
       reply_to_message_id TEXT,
       reply_to_message_content TEXT,
       reply_to_sender_name TEXT,
+      node_id TEXT DEFAULT '',
       PRIMARY KEY (id, chat_jid)
     )
   `;
 
+  await sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS node_id TEXT DEFAULT ''`;
+
   await sql`CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_node_id ON messages(node_id)`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS scheduled_tasks (
@@ -241,8 +245,8 @@ export async function setLastGroupSync(): Promise<void> {
 
 export async function storeMessage(msg: NewMessage): Promise<void> {
   await sql`
-    INSERT INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, reply_to_message_id, reply_to_message_content, reply_to_sender_name)
-    VALUES (${msg.id}, ${msg.chat_jid}, ${msg.sender}, ${msg.sender_name}, ${msg.content}, ${msg.timestamp}, ${msg.is_from_me ? 1 : 0}, ${msg.is_bot_message ? 1 : 0}, ${msg.reply_to_message_id ?? null}, ${msg.reply_to_message_content ?? null}, ${msg.reply_to_sender_name ?? null})
+    INSERT INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, reply_to_message_id, reply_to_message_content, reply_to_sender_name, node_id)
+    VALUES (${msg.id}, ${msg.chat_jid}, ${msg.sender}, ${msg.sender_name}, ${msg.content}, ${msg.timestamp}, ${msg.is_from_me ? 1 : 0}, ${msg.is_bot_message ? 1 : 0}, ${msg.reply_to_message_id ?? null}, ${msg.reply_to_message_content ?? null}, ${msg.reply_to_sender_name ?? null}, ${NODE_ID})
     ON CONFLICT (id, chat_jid) DO UPDATE SET
       content = EXCLUDED.content,
       is_bot_message = EXCLUDED.is_bot_message,
@@ -290,6 +294,7 @@ export async function getNewMessages(
         AND content NOT LIKE ${`${botPrefix}:%`}
         AND content != ''
         AND content IS NOT NULL
+        AND node_id = ${NODE_ID}
       ORDER BY timestamp DESC
       LIMIT ${limit}
     ) sub
