@@ -10,6 +10,7 @@ import path from 'path';
 
 import postgres from 'postgres';
 
+import { readEnvFile } from '../src/env.js';
 import { logger } from '../src/logger.js';
 import { emitStatus } from './status.js';
 
@@ -39,7 +40,8 @@ export async function run(args: string[]): Promise<void> {
 }
 
 async function listGroups(limit: number): Promise<void> {
-  const dbUrl = process.env.DATABASE_URL;
+  const _dbEnv = readEnvFile(['DATABASE_URL']);
+  const dbUrl = process.env.DATABASE_URL || _dbEnv.DATABASE_URL;
   if (!dbUrl) {
     console.error('ERROR: DATABASE_URL not set');
     process.exit(1);
@@ -198,7 +200,8 @@ sock.ev.on('connection.update', async (update) => {
 
   // Count registered groups in PostgreSQL
   let groupsInDb = 0;
-  const dbUrl = process.env.DATABASE_URL;
+  const _dbEnv2 = readEnvFile(['DATABASE_URL']);
+  const dbUrl = process.env.DATABASE_URL || _dbEnv2.DATABASE_URL;
   if (dbUrl) {
     try {
       const sql = postgres(dbUrl, { max: 1, connect_timeout: 5 });

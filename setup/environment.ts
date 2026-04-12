@@ -7,6 +7,7 @@ import path from 'path';
 
 import postgres from 'postgres';
 
+import { readEnvFile } from '../src/env.js';
 import { logger } from '../src/logger.js';
 import { commandExists, getPlatform, isHeadless, isWSL } from './platform.js';
 import { emitStatus } from './status.js';
@@ -45,7 +46,8 @@ export async function run(_args: string[]): Promise<void> {
   const hasAuth = fs.existsSync(authDir) && fs.readdirSync(authDir).length > 0;
 
   let hasRegisteredGroups = false;
-  const dbUrl = process.env.DATABASE_URL;
+  const _dbEnv = readEnvFile(['DATABASE_URL']);
+  const dbUrl = process.env.DATABASE_URL || _dbEnv.DATABASE_URL;
   if (dbUrl) {
     try {
       const sql = postgres(dbUrl, { max: 1, connect_timeout: 5 });

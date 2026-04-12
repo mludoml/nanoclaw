@@ -140,7 +140,8 @@ export async function run(_args: string[]): Promise<void> {
 
   // 5. Check registered groups (PostgreSQL)
   let registeredGroups = 0;
-  const dbUrl = process.env.DATABASE_URL;
+  const _dbEnv = readEnvFile(['DATABASE_URL']);
+  const dbUrl = process.env.DATABASE_URL || _dbEnv.DATABASE_URL;
   if (dbUrl) {
     try {
       const sql = postgres(dbUrl, { max: 1, connect_timeout: 5 });
