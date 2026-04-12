@@ -79,7 +79,7 @@ This is the **main channel**, which has elevated privileges.
 
 ## Authentication
 
-Anthropic credentials must be either an API key from console.anthropic.com (`ANTHROPIC_API_KEY`) or a long-lived OAuth token from `claude setup-token` (`CLAUDE_CODE_OAUTH_TOKEN`). Short-lived tokens from the system keychain or `~/.claude/.credentials.json` expire within hours and can cause recurring container 401s. The `/setup` skill walks through this. OneCLI manages credentials (including Anthropic auth) — run `onecli --help`.
+Credentials are managed by the native credential proxy on the host — reading `CLAUDE_CODE_OAUTH_TOKEN` (OAuth subscription) or `ANTHROPIC_API_KEY` from `.env` and injecting them into container requests. Containers never see the real token. To switch to Ollama Cloud, set `ANTHROPIC_BASE_URL=https://ollama.com` and `ANTHROPIC_AUTH_TOKEN=<token>` in `.env` and restart.
 
 ## Container Mounts
 
