@@ -28,10 +28,8 @@ export const SCHEDULER_POLL_INTERVAL = 60000;
 // in-container path (e.g. /app). Docker daemon however resolves volume mounts
 // against the HOST filesystem. Set HOST_PROJECT_ROOT in .env to the actual
 // host path (e.g. /volume1/docker/nanoclaw) so child container mounts work.
-const PROJECT_ROOT =
-  process.env.HOST_PROJECT_ROOT ||
-  envConfig.HOST_PROJECT_ROOT ||
-  process.cwd();
+export const PROJECT_ROOT =
+  process.env.HOST_PROJECT_ROOT || envConfig.HOST_PROJECT_ROOT || process.cwd();
 const HOME_DIR = process.env.HOME || os.homedir();
 
 // Mount security: allowlist stored OUTSIDE project root, never mounted into containers
