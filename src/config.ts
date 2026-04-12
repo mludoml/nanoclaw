@@ -11,6 +11,7 @@ const envConfig = readEnvFile([
   'ASSISTANT_NAME',
   'ASSISTANT_HAS_OWN_NUMBER',
   'CREDENTIAL_PROXY_PORT',
+  'HOST_PROJECT_ROOT',
   'TZ',
 ]);
 
@@ -22,8 +23,15 @@ export const ASSISTANT_HAS_OWN_NUMBER =
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
-// Absolute paths needed for container mounts
-const PROJECT_ROOT = process.cwd();
+// Absolute paths needed for container mounts.
+// When NanoClaw runs inside Docker (e.g. Synology), process.cwd() is the
+// in-container path (e.g. /app). Docker daemon however resolves volume mounts
+// against the HOST filesystem. Set HOST_PROJECT_ROOT in .env to the actual
+// host path (e.g. /volume1/docker/nanoclaw) so child container mounts work.
+const PROJECT_ROOT =
+  process.env.HOST_PROJECT_ROOT ||
+  envConfig.HOST_PROJECT_ROOT ||
+  process.cwd();
 const HOME_DIR = process.env.HOME || os.homedir();
 
 // Mount security: allowlist stored OUTSIDE project root, never mounted into containers
@@ -54,7 +62,9 @@ export const CONTAINER_MAX_OUTPUT_SIZE = parseInt(
   10,
 ); // 10MB default
 export const CREDENTIAL_PROXY_PORT = parseInt(
-  process.env.CREDENTIAL_PROXY_PORT || envConfig.CREDENTIAL_PROXY_PORT || '3001',
+  process.env.CREDENTIAL_PROXY_PORT ||
+    envConfig.CREDENTIAL_PROXY_PORT ||
+    '3001',
   10,
 );
 export const MAX_MESSAGES_PER_PROMPT = Math.max(
