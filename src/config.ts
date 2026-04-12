@@ -23,13 +23,19 @@ export const ASSISTANT_HAS_OWN_NUMBER =
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
-// Absolute paths needed for container mounts.
+// process.cwd() is the in-process working directory — used for direct file
+// access (DATA_DIR, GROUPS_DIR, etc.) regardless of whether NanoClaw runs
+// natively or inside a Docker container.
+const PROCESS_ROOT = process.cwd();
+
 // When NanoClaw runs inside Docker (e.g. Synology), process.cwd() is the
-// in-container path (e.g. /app). Docker daemon however resolves volume mounts
+// in-container path (/app). Docker daemon however resolves volume mounts
 // against the HOST filesystem. Set HOST_PROJECT_ROOT in .env to the actual
-// host path (e.g. /volume1/docker/nanoclaw) so child container mounts work.
+// host path (e.g. /volume1/docker/nanoclaw) so child agent container mounts
+// work. Used ONLY for building Docker -v arguments, not for file I/O.
 export const PROJECT_ROOT =
   process.env.HOST_PROJECT_ROOT || envConfig.HOST_PROJECT_ROOT || process.cwd();
+
 const HOME_DIR = process.env.HOME || os.homedir();
 
 // Mount security: allowlist stored OUTSIDE project root, never mounted into containers
@@ -45,9 +51,10 @@ export const SENDER_ALLOWLIST_PATH = path.join(
   'nanoclaw',
   'sender-allowlist.json',
 );
-export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
-export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
-export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
+// These use PROCESS_ROOT (in-process CWD) for direct file I/O.
+export const STORE_DIR = path.resolve(PROCESS_ROOT, 'store');
+export const GROUPS_DIR = path.resolve(PROCESS_ROOT, 'groups');
+export const DATA_DIR = path.resolve(PROCESS_ROOT, 'data');
 
 export const CONTAINER_IMAGE =
   process.env.CONTAINER_IMAGE || 'nanoclaw-agent:latest';
