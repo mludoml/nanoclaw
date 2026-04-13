@@ -65,6 +65,15 @@ function buildVolumeMounts(
 ): VolumeMount[] {
   const mounts: VolumeMount[] = [];
   const projectRoot = PROJECT_ROOT;
+  // When running inside Docker, process.cwd() is the in-container path (/app)
+  // but Docker volume mounts need HOST paths (PROJECT_ROOT). This helper
+  // translates in-process paths to their corresponding host paths.
+  const procRoot = process.cwd();
+  const toHost = (p: string): string => {
+    if (procRoot === projectRoot) return p;
+    const rel = path.relative(procRoot, p);
+    return path.join(projectRoot, rel);
+  };
   const groupDir = resolveGroupFolderPath(group.folder);
 
   if (isMain) {
@@ -81,7 +90,7 @@ function buildVolumeMounts(
 
     // Shadow .env so the agent cannot read secrets from the mounted project root.
     // Credentials are injected by the credential proxy, never exposed to containers.
-    const envFile = path.join(projectRoot, '.env');
+    const envFile = path.join(procRoot, '.env');
     if (fs.existsSync(envFile)) {
       mounts.push({
         hostPath: '/dev/null',
@@ -101,7 +110,7 @@ function buildVolumeMounts(
 
     // Main also gets its group folder as the working directory
     mounts.push({
-      hostPath: groupDir,
+      hostPath: toHost(groupDir),
       containerPath: '/workspace/group',
       readonly: false,
     });
@@ -110,7 +119,7 @@ function buildVolumeMounts(
     const globalDir = path.join(GROUPS_DIR, 'global');
     if (fs.existsSync(globalDir)) {
       mounts.push({
-        hostPath: globalDir,
+        hostPath: toHost(globalDir),
         containerPath: '/workspace/global',
         readonly: false,
       });
@@ -118,7 +127,7 @@ function buildVolumeMounts(
   } else {
     // Other groups only get their own folder
     mounts.push({
-      hostPath: groupDir,
+      hostPath: toHost(groupDir),
       containerPath: '/workspace/group',
       readonly: false,
     });
@@ -128,7 +137,7 @@ function buildVolumeMounts(
     const globalDir = path.join(GROUPS_DIR, 'global');
     if (fs.existsSync(globalDir)) {
       mounts.push({
-        hostPath: globalDir,
+        hostPath: toHost(globalDir),
         containerPath: '/workspace/global',
         readonly: true,
       });
@@ -180,7 +189,7 @@ function buildVolumeMounts(
     }
   }
   mounts.push({
-    hostPath: groupSessionsDir,
+    hostPath: toHost(groupSessionsDir),
     containerPath: '/home/node/.claude',
     readonly: false,
   });
@@ -192,7 +201,7 @@ function buildVolumeMounts(
   fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'input'), { recursive: true });
   mounts.push({
-    hostPath: groupIpcDir,
+    hostPath: toHost(groupIpcDir),
     containerPath: '/workspace/ipc',
     readonly: false,
   });
@@ -200,12 +209,7 @@ function buildVolumeMounts(
   // Copy agent-runner source into a per-group writable location so agents
   // can customize it (add tools, change behavior) without affecting other
   // groups. Recompiled on container startup via entrypoint.sh.
-  const agentRunnerSrc = path.join(
-    projectRoot,
-    'container',
-    'agent-runner',
-    'src',
-  );
+  const agentRunnerSrc = path.join(procRoot, 'container', 'agent-runner', 'src');
   const groupAgentRunnerDir = path.join(
     DATA_DIR,
     'sessions',
@@ -225,7 +229,7 @@ function buildVolumeMounts(
     }
   }
   mounts.push({
-    hostPath: groupAgentRunnerDir,
+    hostPath: toHost(groupAgentRunnerDir),
     containerPath: '/app/src',
     readonly: false,
   });
