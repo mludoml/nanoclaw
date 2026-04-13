@@ -18,6 +18,7 @@ import {
   IDLE_TIMEOUT,
   PROJECT_ROOT,
   OLLAMA_ADMIN_TOOLS,
+  CLAUDE_MODEL,
   TIMEZONE,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
@@ -211,7 +212,12 @@ function buildVolumeMounts(
   // Copy agent-runner source into a per-group writable location so agents
   // can customize it (add tools, change behavior) without affecting other
   // groups. Recompiled on container startup via entrypoint.sh.
-  const agentRunnerSrc = path.join(procRoot, 'container', 'agent-runner', 'src');
+  const agentRunnerSrc = path.join(
+    procRoot,
+    'container',
+    'agent-runner',
+    'src',
+  );
   const groupAgentRunnerDir = path.join(
     DATA_DIR,
     'sessions',
@@ -271,6 +277,9 @@ function buildContainerArgs(
   // Forward Ollama admin tools flag if enabled
   if (OLLAMA_ADMIN_TOOLS) {
     args.push('-e', 'OLLAMA_ADMIN_TOOLS=true');
+  }
+  if (CLAUDE_MODEL) {
+    args.push('-e', `CLAUDE_MODEL=${CLAUDE_MODEL}`);
   }
 
   // Route API traffic through the credential proxy (containers never see real secrets)

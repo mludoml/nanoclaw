@@ -13,6 +13,7 @@ const envConfig = readEnvFile([
   'CREDENTIAL_PROXY_PORT',
   'HOST_PROJECT_ROOT',
   'OLLAMA_ADMIN_TOOLS',
+  'CLAUDE_MODEL',
   'TZ',
   'ICLOUD_PATH',
 ]);
@@ -24,6 +25,8 @@ export const ASSISTANT_HAS_OWN_NUMBER =
     envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';
 export const OLLAMA_ADMIN_TOOLS =
   (process.env.OLLAMA_ADMIN_TOOLS || envConfig.OLLAMA_ADMIN_TOOLS) === 'true';
+export const CLAUDE_MODEL =
+  process.env.CLAUDE_MODEL || envConfig.CLAUDE_MODEL || undefined;
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
