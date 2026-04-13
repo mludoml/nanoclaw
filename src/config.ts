@@ -13,6 +13,7 @@ const envConfig = readEnvFile([
   'CREDENTIAL_PROXY_PORT',
   'HOST_PROJECT_ROOT',
   'TZ',
+  'ICLOUD_PATH',
 ]);
 
 export const ASSISTANT_NAME =
@@ -114,3 +115,10 @@ function resolveConfigTimezone(): string {
   return 'UTC';
 }
 export const TIMEZONE = resolveConfigTimezone();
+
+// Optional iCloud path to mount into containers as /workspace/icloud (read-only).
+// Set ICLOUD_PATH in .env per instance:
+//   main bots:    full iCloud Drive path
+//   trading bots: Obsidian vault path
+export const ICLOUD_PATH =
+  process.env.ICLOUD_PATH || envConfig.ICLOUD_PATH || '';

@@ -14,6 +14,7 @@ import {
   CREDENTIAL_PROXY_PORT,
   DATA_DIR,
   GROUPS_DIR,
+  ICLOUD_PATH,
   IDLE_TIMEOUT,
   PROJECT_ROOT,
   TIMEZONE,
@@ -233,6 +234,16 @@ function buildVolumeMounts(
     containerPath: '/app/src',
     readonly: false,
   });
+
+  // iCloud mount — path set per-instance in .env (ICLOUD_PATH)
+  // Main bots: full iCloud Drive; Trading bots: Obsidian vault
+  if (ICLOUD_PATH && fs.existsSync(ICLOUD_PATH)) {
+    mounts.push({
+      hostPath: ICLOUD_PATH,
+      containerPath: '/workspace/icloud',
+      readonly: false,
+    });
+  }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
