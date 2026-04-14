@@ -20,6 +20,7 @@ import {
   OLLAMA_ADMIN_TOOLS,
   CLAUDE_MODEL,
   TIMEZONE,
+  TRADINGVIEW_MCP_URL,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
@@ -157,28 +158,46 @@ function buildVolumeMounts(
   );
   fs.mkdirSync(groupSessionsDir, { recursive: true });
   const settingsFile = path.join(groupSessionsDir, 'settings.json');
-  if (!fs.existsSync(settingsFile)) {
-    fs.writeFileSync(
-      settingsFile,
-      JSON.stringify(
-        {
-          env: {
-            // Enable agent swarms (subagent orchestration)
-            // https://code.claude.com/docs/en/agent-teams#orchestrate-teams-of-claude-code-sessions
-            CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
-            // Load CLAUDE.md from additional mounted directories
-            // https://code.claude.com/docs/en/memory#load-memory-from-additional-directories
-            CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
-            // Enable Claude's memory feature (persists user preferences between sessions)
-            // https://code.claude.com/docs/en/memory#manage-auto-memory
-            CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
-          },
-        },
-        null,
-        2,
-      ) + '\n',
-    );
+  const baseSettings = {
+    env: {
+      // Enable agent swarms (subagent orchestration)
+      // https://code.claude.com/docs/en/agent-teams#orchestrate-teams-of-claude-code-sessions
+      CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
+      // Load CLAUDE.md from additional mounted directories
+      // https://code.claude.com/docs/en/memory#load-memory-from-additional-directories
+      CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
+      // Enable Claude's memory feature (persists user preferences between sessions)
+      // https://code.claude.com/docs/en/memory#manage-auto-memory
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
+    },
+  };
+
+  // Read existing settings and merge, so MCP config updates on every run
+  let existingSettings: Record<string, unknown> = {};
+  if (fs.existsSync(settingsFile)) {
+    try {
+      existingSettings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    } catch { /* ignore parse errors — overwrite below */ }
   }
+
+  const mergedSettings: Record<string, unknown> = {
+    ...existingSettings,
+    env: { ...(existingSettings.env as Record<string, string> ?? {}), ...baseSettings.env },
+  };
+
+  // Inject TradingView MCP server when configured (mac-trading only)
+  if (TRADINGVIEW_MCP_URL) {
+    const mcpServers = (existingSettings.mcpServers as Record<string, unknown> ?? {});
+    mergedSettings.mcpServers = {
+      ...mcpServers,
+      tradingview: {
+        type: 'sse',
+        url: TRADINGVIEW_MCP_URL,
+      },
+    };
+  }
+
+  fs.writeFileSync(settingsFile, JSON.stringify(mergedSettings, null, 2) + '\n');
 
   // Sync skills from container/skills/ into each group's .claude/skills/
   const skillsSrc = path.join(process.cwd(), 'container', 'skills');

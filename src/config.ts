@@ -16,6 +16,7 @@ const envConfig = readEnvFile([
   'CLAUDE_MODEL',
   'TZ',
   'ICLOUD_PATH',
+  'TRADINGVIEW_MCP_URL',
 ]);
 
 export const ASSISTANT_NAME =
@@ -128,3 +129,10 @@ export const TIMEZONE = resolveConfigTimezone();
 //   trading bots: Obsidian vault path
 export const ICLOUD_PATH =
   process.env.ICLOUD_PATH || envConfig.ICLOUD_PATH || '';
+
+// Optional TradingView MCP server URL (SSE transport).
+// The server runs on the Mac host and is accessible from Docker containers
+// via host.docker.internal. Set in mac-trading .env:
+//   TRADINGVIEW_MCP_URL=http://host.docker.internal:3010
+export const TRADINGVIEW_MCP_URL =
+  process.env.TRADINGVIEW_MCP_URL || envConfig.TRADINGVIEW_MCP_URL || '';
