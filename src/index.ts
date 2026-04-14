@@ -567,7 +567,6 @@ async function main(): Promise<void> {
     );
   }, 30_000);
 
-
   restoreRemoteControl();
 
   // Start credential proxy (containers route API calls through this)

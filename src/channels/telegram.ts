@@ -155,13 +155,18 @@ export class TelegramChannel implements Channel {
         'Unknown';
       const sender = ctx.from?.id.toString() || '';
       const botId = ctx.me?.id?.toString() || '';
-      const msgId = botId ? `${botId}_${ctx.message.message_id}` : ctx.message.message_id.toString();
+      const msgId = botId
+        ? `${botId}_${ctx.message.message_id}`
+        : ctx.message.message_id.toString();
       const threadId = ctx.message.message_thread_id;
 
       const replyTo = ctx.message.reply_to_message;
-      const replyToMessageId = replyTo?.message_id != null
-        ? (botId ? `${botId}_${replyTo.message_id}` : replyTo.message_id.toString())
-        : undefined;
+      const replyToMessageId =
+        replyTo?.message_id != null
+          ? botId
+            ? `${botId}_${replyTo.message_id}`
+            : replyTo.message_id.toString()
+          : undefined;
       const replyToContent = replyTo?.text || replyTo?.caption;
       const replyToSenderName = replyTo
         ? replyTo.from?.first_name ||
@@ -269,7 +274,9 @@ export class TelegramChannel implements Channel {
       const deliver = (content: string) => {
         const _botId = ctx.me?.id?.toString() || '';
         this.opts.onMessage(chatJid, {
-          id: _botId ? `${_botId}_${ctx.message.message_id}` : ctx.message.message_id.toString(),
+          id: _botId
+            ? `${_botId}_${ctx.message.message_id}`
+            : ctx.message.message_id.toString(),
           chat_jid: chatJid,
           sender: ctx.from?.id?.toString() || '',
           sender_name: senderName,
