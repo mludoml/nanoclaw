@@ -20,7 +20,7 @@ import {
   OLLAMA_ADMIN_TOOLS,
   CLAUDE_MODEL,
   TIMEZONE,
-  TRADINGVIEW_MCP_URL,
+  TRADINGVIEW_MCP_PATH,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
@@ -177,27 +177,39 @@ function buildVolumeMounts(
   if (fs.existsSync(settingsFile)) {
     try {
       existingSettings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-    } catch { /* ignore parse errors — overwrite below */ }
+    } catch {
+      /* ignore parse errors — overwrite below */
+    }
   }
 
   const mergedSettings: Record<string, unknown> = {
     ...existingSettings,
-    env: { ...(existingSettings.env as Record<string, string> ?? {}), ...baseSettings.env },
+    env: {
+      ...((existingSettings.env as Record<string, string>) ?? {}),
+      ...baseSettings.env,
+    },
   };
 
-  // Inject TradingView MCP server when configured (mac-trading only)
-  if (TRADINGVIEW_MCP_URL) {
-    const mcpServers = (existingSettings.mcpServers as Record<string, unknown> ?? {});
+  // Inject TradingView MCP server when configured (mac-trading only).
+  // Runs directly as stdio inside the container — no supergateway needed.
+  // CDP_HOST points to TradingView Desktop on the Mac host.
+  if (TRADINGVIEW_MCP_PATH && fs.existsSync(TRADINGVIEW_MCP_PATH)) {
+    const mcpServers =
+      (existingSettings.mcpServers as Record<string, unknown>) ?? {};
     mergedSettings.mcpServers = {
       ...mcpServers,
       tradingview: {
-        type: 'sse',
-        url: TRADINGVIEW_MCP_URL,
+        command: 'node',
+        args: ['/workspace/tradingview-mcp/src/server.js'],
+        env: { CDP_HOST: CONTAINER_HOST_GATEWAY },
       },
     };
   }
 
-  fs.writeFileSync(settingsFile, JSON.stringify(mergedSettings, null, 2) + '\n');
+  fs.writeFileSync(
+    settingsFile,
+    JSON.stringify(mergedSettings, null, 2) + '\n',
+  );
 
   // Sync skills from container/skills/ into each group's .claude/skills/
   const skillsSrc = path.join(process.cwd(), 'container', 'skills');
@@ -260,6 +272,15 @@ function buildVolumeMounts(
     containerPath: '/app/src',
     readonly: false,
   });
+
+  // TradingView MCP mount — stdio, no supergateway needed
+  if (TRADINGVIEW_MCP_PATH && fs.existsSync(TRADINGVIEW_MCP_PATH)) {
+    mounts.push({
+      hostPath: TRADINGVIEW_MCP_PATH,
+      containerPath: '/workspace/tradingview-mcp',
+      readonly: true,
+    });
+  }
 
   // iCloud mount — path set per-instance in .env (ICLOUD_PATH)
   // Main bots: full iCloud Drive; Trading bots: Obsidian vault
