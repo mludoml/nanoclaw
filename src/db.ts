@@ -509,7 +509,8 @@ export async function setRouterState(
 export async function getSession(
   groupFolder: string,
 ): Promise<{ sessionId: string; lastNode: string | null } | undefined> {
-  const rows = await sql`SELECT session_id, last_node FROM sessions WHERE group_folder = ${groupFolder} AND node_id = ${SESSION_GROUP}`;
+  const rows =
+    await sql`SELECT session_id, last_node FROM sessions WHERE group_folder = ${groupFolder} AND node_id = ${SESSION_GROUP}`;
   if (!rows[0]) return undefined;
   return { sessionId: rows[0].session_id, lastNode: rows[0].last_node ?? null };
 }
@@ -528,13 +529,25 @@ export async function deleteSession(groupFolder: string): Promise<void> {
   await sql`DELETE FROM sessions WHERE group_folder = ${groupFolder} AND node_id = ${SESSION_GROUP}`;
 }
 
-export async function getAllSessions(): Promise<Record<string, { sessionId: string; lastNode: string | null }>> {
-  const rows = await sql<Array<{ group_folder: string; session_id: string; last_node: string | null }>>`
+export async function getAllSessions(): Promise<
+  Record<string, { sessionId: string; lastNode: string | null }>
+> {
+  const rows = await sql<
+    Array<{
+      group_folder: string;
+      session_id: string;
+      last_node: string | null;
+    }>
+  >`
     SELECT group_folder, session_id, last_node FROM sessions WHERE node_id = ${SESSION_GROUP}
   `;
-  const result: Record<string, { sessionId: string; lastNode: string | null }> = {};
+  const result: Record<string, { sessionId: string; lastNode: string | null }> =
+    {};
   for (const row of rows) {
-    result[row.group_folder] = { sessionId: row.session_id, lastNode: row.last_node ?? null };
+    result[row.group_folder] = {
+      sessionId: row.session_id,
+      lastNode: row.last_node ?? null,
+    };
   }
   return result;
 }
@@ -542,7 +555,8 @@ export async function getAllSessions(): Promise<Record<string, { sessionId: stri
 export async function getRegisteredGroup(
   jid: string,
 ): Promise<(RegisteredGroup & { jid: string }) | undefined> {
-  const rows = await sql`SELECT * FROM registered_groups WHERE jid = ${jid} AND session_group = ${SESSION_GROUP}`;
+  const rows =
+    await sql`SELECT * FROM registered_groups WHERE jid = ${jid} AND session_group = ${SESSION_GROUP}`;
   const row = rows[0];
   if (!row) return undefined;
   if (!isValidGroupFolder(row.folder)) {
@@ -591,7 +605,8 @@ export async function setRegisteredGroup(
 export async function getAllRegisteredGroups(): Promise<
   Record<string, RegisteredGroup>
 > {
-  const rows = await sql`SELECT * FROM registered_groups WHERE session_group = ${SESSION_GROUP}`;
+  const rows =
+    await sql`SELECT * FROM registered_groups WHERE session_group = ${SESSION_GROUP}`;
   const result: Record<string, RegisteredGroup> = {};
   for (const row of rows) {
     if (!isValidGroupFolder(row.folder)) {

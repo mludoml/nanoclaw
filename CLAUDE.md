@@ -13,7 +13,7 @@ Telegram → NanoClaw (Node.js) → Docker container (claude-code agent)
 ```
 
 ## Kluczowe pliki
-
+ 
 | Plik | Rola |
 |------|------|
 | `src/index.ts` | Orchestrator: pętla wiadomości, state, router |
@@ -100,9 +100,7 @@ Każda instancja ma `SESSION_GROUP` w `.env`. Instancje z tym samym `SESSION_GRO
 | mac-trading | `trading` |
 | synology-trading | `trading` |
 
-Przy przełączeniu między instancjami (np. mac → synology) do promptu doklejana jest nota kontekstowa informująca Claude że obsługuje sesję po innej instancji i nie powinien powtarzać już zrealizowanych zadań.
-
-Wymaga synchronizacji `data/sessions/` przez Syncthing (patrz sekcja Synchronizacja).
+Przy przełączeniu między instancjami (np. mac → synology) do promptu doklejana jest nota kontekstowa. `last_node` jest odczytywany z PostgreSQL przed każdym `runAgent` (świeże dane, nie cache z uruchomienia).
 
 ### 7. CLAUDE_MODEL — wybór modelu agenta
 
@@ -221,7 +219,8 @@ Container build cache: jeśli COPY steps są stale, prune builder: `docker build
 
 Po zmianie kodu źródłowego na NAS (np. config.ts, container-runner.ts):
 ```bash
-cat ~/Projects/nanoclaw/src/config.ts | ssh synology "cat > /volume1/docker/nanoclaw/src/config.ts && cat > /volume1/docker/nanoclaw-trading/src/config.ts"
+cat ~/Projects/nanoclaw/src/config.ts | ssh synology "cat > /volume1/docker/nanoclaw/src/config.ts"
+cat ~/Projects/nanoclaw/src/config.ts | ssh synology "cat > /volume1/docker/nanoclaw-trading/src/config.ts"
 ```
 
 ## .env (Mac main)
