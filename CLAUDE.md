@@ -47,8 +47,9 @@ Wszystkie instancje obsługują chat `tg:5793614048` (Telegram user ID właścic
 Baza PostgreSQL na Synology (Docker), port **5433**, shared między wszystkimi instancjami.
 - Container: `nanoclaw-postgres`
 - Credentials: `nanoclaw` / `nanoclaw` / `nanoclaw_secret`
-- Tabela `messages` ma kolumnę `node_id` — izoluje wiadomości per instancja
-- Tabela `registered_groups` jest współdzielona globalnie
+- Tabela `messages` ma kolumnę `node_id` — izoluje wiadomości per instancja; odpowiedzi botów też są zapisywane (`is_bot_message=1`)
+- Tabela `registered_groups` ma PK `(jid, session_group)` — main i trading mają osobne wpisy i osobne foldery grup
+- Tabela `sessions` ma PK `(group_folder, node_id)` gdzie `node_id` = `SESSION_GROUP`; kolumna `last_node` śledzi która instancja ostatnio obsługiwała sesję
 
 ### 2. Native credential proxy (zamiast OneCLI)
 
@@ -88,7 +89,28 @@ const msgId = botId ? `${botId}_${ctx.message.message_id}` : ...;
 
 Kontenery agentów: `nanoclaw-agent-*` (nie `nanoclaw-*`), żeby nie zabijać `nanoclaw-postgres` przy cleanup.
 
-### 6. iCloud mount per instancja (ICLOUD_PATH)
+### 6. SESSION_GROUP — izolacja sesji i współdzielenie między instancjami
+
+Każda instancja ma `SESSION_GROUP` w `.env`. Instancje z tym samym `SESSION_GROUP` dzielą sesję Claude (historię konwersacji). Instancje z różnym `SESSION_GROUP` mają osobne sesje.
+
+| Instancja | SESSION_GROUP |
+|-----------|---------------|
+| mac | `main` |
+| synology | `main` |
+| mac-trading | `trading` |
+| synology-trading | `trading` |
+
+Przy przełączeniu między instancjami (np. mac → synology) do promptu doklejana jest nota kontekstowa informująca Claude że obsługuje sesję po innej instancji i nie powinien powtarzać już zrealizowanych zadań.
+
+Wymaga synchronizacji `data/sessions/` przez Syncthing (patrz sekcja Synchronizacja).
+
+### 7. CLAUDE_MODEL — wybór modelu agenta
+
+Zmienna `CLAUDE_MODEL` w `.env` każdej instancji. Musi być pełnym ID modelu (nie aliasem).
+
+Aktualnie wszystkie instancje: `CLAUDE_MODEL=claude-haiku-4-5-20251001`
+
+### 8. iCloud mount per instancja (ICLOUD_PATH)
 
 Każda instancja może mieć zamontowany katalog iCloud/Obsidian do kontenera agenta pod `/workspace/icloud`.
 Ustawiany przez `ICLOUD_PATH` w `.env` — jeśli ścieżka istnieje, jest automatycznie mountowana (read-write).
@@ -106,11 +128,15 @@ Ustawiany przez `ICLOUD_PATH` w `.env` — jeśli ścieżka istnieje, jest autom
 
 Docelowo NAS main powinien dostać `/volume2/sync/icloud` (Syncthing copy pełnego iCloud Drive) gdy sync się zakończy.
 
-## Synchronizacja grup (Syncthing)
+## Synchronizacja (Syncthing)
 
-Foldery `groups/` synchronizowane między Mac ↔ Synology przez Tailscale:
+Foldery synchronizowane między Mac ↔ Synology przez Tailscale:
 - `nanoclaw-main-groups`: `~/nanoclaw/groups/` ↔ `/volume1/docker/nanoclaw/groups/`
 - `nanoclaw-trading-groups`: `~/nanoclaw-trading/groups/` ↔ `/volume1/docker/nanoclaw-trading/groups/`
+- `nanoclaw-main-sessions`: `~/nanoclaw/data/sessions/` ↔ `/volume1/docker/nanoclaw/data/sessions/`
+- `nanoclaw-trading-sessions`: `~/nanoclaw-trading/data/sessions/` ↔ `/volume1/docker/nanoclaw-trading/data/sessions/`
+
+Sesje Claude (`.jsonl`) muszą być synchronizowane żeby mac i nas (tej samej grupy) dzieliły historię konwersacji.
 
 `.stignore`:
 ```
@@ -172,8 +198,9 @@ launchctl kickstart -k gui/$(id -u)/com.nanoclaw
 
 Po zmianie kodu źródłowego należy skopiować do obu instancji produkcyjnych:
 ```bash
-cp ~/Projects/nanoclaw/src/config.ts ~/nanoclaw/src/ ~/nanoclaw-trading/src/
-cp ~/Projects/nanoclaw/src/container-runner.ts ~/nanoclaw/src/ ~/nanoclaw-trading/src/
+for f in src/config.ts src/container-runner.ts src/db.ts src/index.ts src/task-scheduler.ts; do
+  cp ~/Projects/nanoclaw/$f ~/nanoclaw/$f && cp ~/Projects/nanoclaw/$f ~/nanoclaw-trading/$f
+done
 cd ~/nanoclaw && npm run build && cd ~/nanoclaw-trading && npm run build
 ```
 
@@ -203,8 +230,10 @@ cat ~/Projects/nanoclaw/src/config.ts | ssh synology "cat > /volume1/docker/nano
 ASSISTANT_NAME=Andy
 TELEGRAM_BOT_TOKEN=<token>
 NODE_ID=mac
+SESSION_GROUP=main
 CREDENTIAL_PROXY_PORT=3001
 CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+CLAUDE_MODEL=claude-haiku-4-5-20251001
 TZ=Europe/Warsaw
 ICLOUD_PATH=/Users/m.lud/Library/Mobile Documents
 ```
@@ -215,8 +244,10 @@ ICLOUD_PATH=/Users/m.lud/Library/Mobile Documents
 ASSISTANT_NAME=Andy
 TELEGRAM_BOT_TOKEN=<token>
 NODE_ID=mac-trading
+SESSION_GROUP=trading
 CREDENTIAL_PROXY_PORT=3002
 CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+CLAUDE_MODEL=claude-haiku-4-5-20251001
 TZ=Europe/Warsaw
 ICLOUD_PATH=/Users/m.lud/Library/Mobile Documents/iCloud~md~obsidian/Documents/main
 ```
@@ -227,8 +258,10 @@ ICLOUD_PATH=/Users/m.lud/Library/Mobile Documents/iCloud~md~obsidian/Documents/m
 ASSISTANT_NAME=Andy
 TELEGRAM_BOT_TOKEN=<token>
 NODE_ID=synology
+SESSION_GROUP=main
 CREDENTIAL_PROXY_PORT=3001
 CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+CLAUDE_MODEL=claude-haiku-4-5-20251001
 HOST_PROJECT_ROOT=/volume1/docker/nanoclaw
 TZ=Europe/Warsaw
 ICLOUD_PATH=/volume2/sync/obsidian
@@ -240,8 +273,10 @@ ICLOUD_PATH=/volume2/sync/obsidian
 ASSISTANT_NAME=Andy
 TELEGRAM_BOT_TOKEN=<token>
 NODE_ID=synology-trading
+SESSION_GROUP=trading
 CREDENTIAL_PROXY_PORT=3002
 CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+CLAUDE_MODEL=claude-haiku-4-5-20251001
 HOST_PROJECT_ROOT=/volume1/docker/nanoclaw-trading
 TZ=Europe/Warsaw
 ICLOUD_PATH=/volume2/sync/obsidian
