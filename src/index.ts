@@ -40,6 +40,7 @@ import {
   getNewMessages,
   getRouterState,
   initDatabase,
+  NODE_ID,
   registerNode,
   setRegisteredGroup,
   setRouterState,
@@ -72,7 +73,7 @@ import { logger } from './logger.js';
 export { escapeXml, formatMessages } from './router.js';
 
 let lastTimestamp = '';
-let sessions: Record<string, string> = {};
+let sessions: Record<string, { sessionId: string; lastNode: string | null }> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 let messageLoopRunning = false;
@@ -282,6 +283,20 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       if (text) {
         await channel.sendMessage(chatJid, text);
         outputSentToUser = true;
+        // Store bot response in messages table for audit/history
+        const msgId = `${NODE_ID}_bot_${Date.now()}`;
+        storeMessage({
+          id: msgId,
+          chat_jid: chatJid,
+          sender: NODE_ID,
+          sender_name: ASSISTANT_NAME,
+          content: text,
+          timestamp: new Date().toISOString(),
+          is_from_me: true,
+          is_bot_message: true,
+        }).catch((err) =>
+          logger.error({ err, chatJid }, 'Failed to store bot response'),
+        );
       }
       // Only reset idle timer on actual results, not session-update markers (result: null)
       resetIdleTimer();
@@ -329,7 +344,16 @@ async function runAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
-  const sessionId = sessions[group.folder];
+  const sessionEntry = sessions[group.folder];
+  const sessionId = sessionEntry?.sessionId;
+  const lastNode = sessionEntry?.lastNode ?? null;
+
+  // When resuming a session previously handled by a different node, prepend a context note
+  // so Claude understands it's a different instance continuing the conversation.
+  if (lastNode && lastNode !== NODE_ID) {
+    logger.info({ group: group.name, lastNode, currentNode: NODE_ID }, 'Node switch detected — prepending context note');
+    prompt = `[WAŻNE — zmiana instancji: poprzednie wiadomości obsługiwała instancja "${lastNode}", teraz Ty ("${NODE_ID}") przejmujesz rozmowę. Użytkownik przełączył się na Ciebie. ZASADA: sprawdź historię sesji — wszystkie zapytania i polecenia które już zostały obsłużone przez poprzednią instancję uważaj za zakończone. Jeśli nowa wiadomość użytkownika dotyczy czegoś już zrealizowanego, NIE wykonuj tego ponownie ani nie kontynuuj — przywitaj się i zapytaj czym możesz teraz pomóc. Odpowiadaj tylko na rzeczy nowe lub wyraźnie ponownie zlecone.]\n\n${prompt}`;
+  }
 
   // Update tasks snapshot for container to read (filtered by group)
   const tasks = await getAllTasks();
@@ -361,7 +385,7 @@ async function runAgent(
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
         if (output.newSessionId) {
-          sessions[group.folder] = output.newSessionId;
+          sessions[group.folder] = { sessionId: output.newSessionId, lastNode: NODE_ID };
           await setSession(group.folder, output.newSessionId);
         }
         await onOutput(output);
@@ -385,7 +409,7 @@ async function runAgent(
     );
 
     if (output.newSessionId) {
-      sessions[group.folder] = output.newSessionId;
+      sessions[group.folder] = { sessionId: output.newSessionId, lastNode: NODE_ID };
       await setSession(group.folder, output.newSessionId);
     }
 

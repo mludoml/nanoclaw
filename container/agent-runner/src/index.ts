@@ -63,6 +63,9 @@ interface SDKUserMessage {
 const IPC_INPUT_DIR = '/workspace/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
+// If an IPC message was piped into the stream and no result arrives within
+// this time, end the stream so the query loop can restart fresh.
+const IPC_WATCHDOG_MS = 3 * 60 * 1000; // 3 minutes
 
 /**
  * Push-based async iterable for streaming user messages to the SDK.
@@ -402,6 +405,7 @@ async function runQuery(
     for (const text of messages) {
       log(`Piping IPC message into active query (${text.length} chars)`);
       stream.push(text);
+      if (lastIpcPipeAt === null) lastIpcPipeAt = Date.now();
     }
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };
@@ -411,6 +415,10 @@ async function runQuery(
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
+  // Tracks when the first IPC message was piped after the last result.
+  // Reset to null after each result. If set and no result arrives within
+  // IPC_WATCHDOG_MS, we end the stream (API stuck on rate limit).
+  let lastIpcPipeAt: number | null = null;
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
@@ -436,6 +444,19 @@ async function runQuery(
   }
 
   const claudeModel = process.env.CLAUDE_MODEL || undefined;
+
+  // Watchdog: if IPC messages were piped but no result arrives in IPC_WATCHDOG_MS,
+  // end the stream so the query loop can restart fresh.
+  const watchdogInterval = setInterval(() => {
+    if (lastIpcPipeAt !== null && Date.now() - lastIpcPipeAt > IPC_WATCHDOG_MS) {
+      log(
+        `Watchdog: no result for ${IPC_WATCHDOG_MS / 1000}s after IPC message piped, ending stream`,
+      );
+      ipcPolling = false;
+      stream.end();
+      clearInterval(watchdogInterval);
+    }
+  }, 30_000);
 
   for await (const message of query({
     prompt: stream,
@@ -527,6 +548,7 @@ async function runQuery(
 
     if (message.type === 'result') {
       resultCount++;
+      lastIpcPipeAt = null; // reset watchdog — result received, all good
       const textResult =
         'result' in message ? (message as { result?: string }).result : null;
       log(
@@ -540,6 +562,7 @@ async function runQuery(
     }
   }
 
+  clearInterval(watchdogInterval);
   ipcPolling = false;
   log(
     `Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`,

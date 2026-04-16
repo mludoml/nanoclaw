@@ -17,13 +17,18 @@ import { readEnvFile } from './env.js';
 
 let sql: postgres.Sql;
 
-const _envDb = readEnvFile(['DATABASE_URL', 'NODE_ID']);
+const _envDb = readEnvFile(['DATABASE_URL', 'NODE_ID', 'SESSION_GROUP']);
 const DATABASE_URL =
   process.env.DATABASE_URL ||
   _envDb.DATABASE_URL ||
   'postgresql://nanoclaw:nanoclaw_secret@localhost:5433/nanoclaw';
 
 export const NODE_ID = process.env.NODE_ID || _envDb.NODE_ID || os.hostname();
+
+// SESSION_GROUP groups instances that share conversation history (e.g. mac+synology = "main")
+// Defaults to NODE_ID if not set (each instance has its own session)
+export const SESSION_GROUP =
+  process.env.SESSION_GROUP || _envDb.SESSION_GROUP || NODE_ID;
 
 async function createSchema(): Promise<void> {
   await sql`
@@ -103,21 +108,42 @@ async function createSchema(): Promise<void> {
 
   await sql`
     CREATE TABLE IF NOT EXISTS sessions (
-      group_folder TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL
+      group_folder TEXT NOT NULL,
+      node_id TEXT NOT NULL DEFAULT '',
+      session_id TEXT NOT NULL,
+      last_node TEXT,
+      PRIMARY KEY (group_folder, node_id)
     )
   `;
 
+  // Migration: upgrade sessions PK from (group_folder) to (group_folder, node_id)
+  await sql`
+    DO $migration$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'sessions' AND column_name = 'node_id'
+      ) THEN
+        ALTER TABLE sessions ADD COLUMN node_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE sessions DROP CONSTRAINT sessions_pkey;
+        ALTER TABLE sessions ADD PRIMARY KEY (group_folder, node_id);
+      END IF;
+    END $migration$;
+  `;
+  await sql`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_node TEXT`;
+
   await sql`
     CREATE TABLE IF NOT EXISTS registered_groups (
-      jid TEXT PRIMARY KEY,
+      jid TEXT NOT NULL,
+      session_group TEXT NOT NULL DEFAULT 'main',
       name TEXT NOT NULL,
-      folder TEXT NOT NULL UNIQUE,
+      folder TEXT NOT NULL,
       trigger_pattern TEXT NOT NULL,
       added_at TEXT NOT NULL,
       container_config TEXT,
       requires_trigger INTEGER DEFAULT 1,
-      is_main INTEGER DEFAULT 0
+      is_main INTEGER DEFAULT 0,
+      PRIMARY KEY (jid, session_group)
     )
   `;
 
@@ -140,6 +166,22 @@ async function createSchema(): Promise<void> {
   await sql`ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS context_mode TEXT DEFAULT 'isolated'`;
   await sql`ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS script TEXT`;
   await sql`ALTER TABLE registered_groups ADD COLUMN IF NOT EXISTS is_main INTEGER DEFAULT 0`;
+
+  // Migration: upgrade registered_groups PK from (jid) to (jid, session_group)
+  await sql`
+    DO $migration$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'registered_groups' AND column_name = 'session_group'
+      ) THEN
+        ALTER TABLE registered_groups ADD COLUMN session_group TEXT NOT NULL DEFAULT 'main';
+        ALTER TABLE registered_groups DROP CONSTRAINT registered_groups_pkey;
+        ALTER TABLE registered_groups DROP CONSTRAINT IF EXISTS registered_groups_folder_key;
+        ALTER TABLE registered_groups ADD PRIMARY KEY (jid, session_group);
+      END IF;
+    END $migration$;
+  `;
 }
 
 export async function initDatabase(): Promise<void> {
@@ -466,10 +508,10 @@ export async function setRouterState(
 
 export async function getSession(
   groupFolder: string,
-): Promise<string | undefined> {
-  const rows =
-    await sql`SELECT session_id FROM sessions WHERE group_folder = ${groupFolder}`;
-  return rows[0]?.session_id;
+): Promise<{ sessionId: string; lastNode: string | null } | undefined> {
+  const rows = await sql`SELECT session_id, last_node FROM sessions WHERE group_folder = ${groupFolder} AND node_id = ${SESSION_GROUP}`;
+  if (!rows[0]) return undefined;
+  return { sessionId: rows[0].session_id, lastNode: rows[0].last_node ?? null };
 }
 
 export async function setSession(
@@ -477,22 +519,22 @@ export async function setSession(
   sessionId: string,
 ): Promise<void> {
   await sql`
-    INSERT INTO sessions (group_folder, session_id) VALUES (${groupFolder}, ${sessionId})
-    ON CONFLICT (group_folder) DO UPDATE SET session_id = EXCLUDED.session_id
+    INSERT INTO sessions (group_folder, node_id, session_id, last_node) VALUES (${groupFolder}, ${SESSION_GROUP}, ${sessionId}, ${NODE_ID})
+    ON CONFLICT (group_folder, node_id) DO UPDATE SET session_id = EXCLUDED.session_id, last_node = ${NODE_ID}
   `;
 }
 
 export async function deleteSession(groupFolder: string): Promise<void> {
-  await sql`DELETE FROM sessions WHERE group_folder = ${groupFolder}`;
+  await sql`DELETE FROM sessions WHERE group_folder = ${groupFolder} AND node_id = ${SESSION_GROUP}`;
 }
 
-export async function getAllSessions(): Promise<Record<string, string>> {
-  const rows = await sql<Array<{ group_folder: string; session_id: string }>>`
-    SELECT group_folder, session_id FROM sessions
+export async function getAllSessions(): Promise<Record<string, { sessionId: string; lastNode: string | null }>> {
+  const rows = await sql<Array<{ group_folder: string; session_id: string; last_node: string | null }>>`
+    SELECT group_folder, session_id, last_node FROM sessions WHERE node_id = ${SESSION_GROUP}
   `;
-  const result: Record<string, string> = {};
+  const result: Record<string, { sessionId: string; lastNode: string | null }> = {};
   for (const row of rows) {
-    result[row.group_folder] = row.session_id;
+    result[row.group_folder] = { sessionId: row.session_id, lastNode: row.last_node ?? null };
   }
   return result;
 }
@@ -500,7 +542,7 @@ export async function getAllSessions(): Promise<Record<string, string>> {
 export async function getRegisteredGroup(
   jid: string,
 ): Promise<(RegisteredGroup & { jid: string }) | undefined> {
-  const rows = await sql`SELECT * FROM registered_groups WHERE jid = ${jid}`;
+  const rows = await sql`SELECT * FROM registered_groups WHERE jid = ${jid} AND session_group = ${SESSION_GROUP}`;
   const row = rows[0];
   if (!row) return undefined;
   if (!isValidGroupFolder(row.folder)) {
@@ -533,9 +575,9 @@ export async function setRegisteredGroup(
     throw new Error(`Invalid group folder "${group.folder}" for JID ${jid}`);
   }
   await sql`
-    INSERT INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
-    VALUES (${jid}, ${group.name}, ${group.folder}, ${group.trigger}, ${group.added_at}, ${group.containerConfig ? JSON.stringify(group.containerConfig) : null}, ${group.requiresTrigger === undefined ? 1 : group.requiresTrigger ? 1 : 0}, ${group.isMain ? 1 : 0})
-    ON CONFLICT (jid) DO UPDATE SET
+    INSERT INTO registered_groups (jid, session_group, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
+    VALUES (${jid}, ${SESSION_GROUP}, ${group.name}, ${group.folder}, ${group.trigger}, ${group.added_at}, ${group.containerConfig ? JSON.stringify(group.containerConfig) : null}, ${group.requiresTrigger === undefined ? 1 : group.requiresTrigger ? 1 : 0}, ${group.isMain ? 1 : 0})
+    ON CONFLICT (jid, session_group) DO UPDATE SET
       name = EXCLUDED.name,
       folder = EXCLUDED.folder,
       trigger_pattern = EXCLUDED.trigger_pattern,
@@ -549,7 +591,7 @@ export async function setRegisteredGroup(
 export async function getAllRegisteredGroups(): Promise<
   Record<string, RegisteredGroup>
 > {
-  const rows = await sql`SELECT * FROM registered_groups`;
+  const rows = await sql`SELECT * FROM registered_groups WHERE session_group = ${SESSION_GROUP}`;
   const result: Record<string, RegisteredGroup> = {};
   for (const row of rows) {
     if (!isValidGroupFolder(row.folder)) {
