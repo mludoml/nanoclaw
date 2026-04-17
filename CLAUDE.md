@@ -310,6 +310,29 @@ Sprawdź `HOST_PROJECT_ROOT` w `.env` — musi wskazywać host path (`/volume1/d
 - Sprawdź czy chat jest registered: `SELECT * FROM registered_groups`
 - Trigger: `@Andy` (domyślnie) — lub `no_trigger: true` w grupie
 
+## Submoduły
+
+### TradingView MCP (`projects/tradingview-mcp/`)
+
+Submoduł z serwerem MCP do sterowania TradingView Desktop przez CDP.
+Używany wyłącznie przez instancję **mac-trading** (`~/nanoclaw-trading/`).
+
+Szczegółowa dokumentacja: `projects/tradingview-mcp/CLAUDE.md` i `projects/tradingview-mcp/CLAUDE_NOTES.md`.
+
+**Aktualizacja submodułu:**
+```bash
+cd ~/Projects/nanoclaw/projects/tradingview-mcp
+git pull origin main
+cd ~/Projects/nanoclaw
+git add projects/tradingview-mcp
+git commit -m "chore: update tradingview-mcp submodule"
+```
+
+**Kopiowanie do instancji produkcyjnej (po zmianach w src/):**
+```bash
+rsync -av ~/Projects/nanoclaw/projects/tradingview-mcp/src/ ~/nanoclaw-trading/projects/tradingview-mcp/src/
+```
+
 ## Development
 
 ```bash
